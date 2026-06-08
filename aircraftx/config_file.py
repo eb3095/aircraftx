@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, List, Optional
 
+from aircraftx.acars.channel_defaults import DEFAULT_ACARS_CHANNELS
+from aircraftx.acars.channels import parse_acars_channels
 from aircraftx.config import SnifferConfig
 from aircraftx.radio.channel_defaults import DEFAULT_RADIO_CHANNELS
 from aircraftx.radio.channels import build_channel_sets
@@ -30,13 +32,17 @@ class UserConfig:
     show_banner: bool = True
     replay_file: Optional[str] = None
     radio_channels: Optional[List[dict[str, Any]]] = None
+    acars_channels: Optional[List[dict[str, Any]]] = None
     radio_local_lookup: bool = True
     radio_local_radius_km: float = 80.0
     radio_local_max_airports: int = 8
 
     @classmethod
     def defaults(cls) -> UserConfig:
-        return cls(radio_channels=[dict(ch) for ch in DEFAULT_RADIO_CHANNELS])
+        return cls(
+            radio_channels=[dict(ch) for ch in DEFAULT_RADIO_CHANNELS],
+            acars_channels=[dict(ch) for ch in DEFAULT_ACARS_CHANNELS],
+        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UserConfig:
@@ -56,6 +62,7 @@ class UserConfig:
             local_radius_km=self.radio_local_radius_km,
             local_max_airports=self.radio_local_max_airports,
         )
+        acars = parse_acars_channels(self.acars_channels)
         return SnifferConfig.from_preset(
             indoor=self.indoor,
             lat=self.lat,
@@ -67,6 +74,7 @@ class UserConfig:
             sound_enabled=self.sound_enabled,
             radio_local_channels=local,
             radio_basic_channels=basic,
+            acars_channels=acars,
         )
 
 

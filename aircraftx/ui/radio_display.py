@@ -199,5 +199,8 @@ class RadioDisplay:
         text.append("D", style="bold cyan")
         text.append(" ADS-B", style="dim")
         text.append("  ·  ")
+        text.append("C", style="bold cyan")
+        text.append(" ACARS", style="dim")
+        text.append("  ·  ")
         text.append_text(_dim_text("Ctrl+C stop"))
         return Align.center(text)

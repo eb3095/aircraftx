@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from aircraftx.models.aircraft import Aircraft
-from aircraftx.ui.formatters import fmt_optional, message_summary
+from aircraftx.ui.formatters import (
+    fmt_altitude_ft,
+    fmt_optional,
+    fmt_speed_kt,
+    message_summary,
+)
 
 
 def test_fmt_optional_missing():
@@ -10,6 +15,14 @@ def test_fmt_optional_missing():
 
 def test_fmt_optional_float():
     assert fmt_optional(123.456, "°") == "123.5°"
+
+
+def test_fmt_altitude_and_speed_units():
+    assert fmt_altitude_ft(35000) == "35,000 ft"
+    assert fmt_altitude_ft(None) == "—"
+    assert fmt_speed_kt(450) == "450 kt"
+    assert fmt_speed_kt(450.5) == "450.5 kt"
+    assert fmt_speed_kt(None) == "—"
 
 
 def test_message_summary_callsign_and_alt():

@@ -22,12 +22,19 @@ class AudioOutput:
         self._lock = threading.Lock()
         self._stream = None
         self.available = False
-        self._start()
+        self._shutdown = False
+        self._ready = threading.Event()
+        threading.Thread(
+            target=self._start,
+            name="aircraftx-audio",
+            daemon=True,
+        ).start()
 
     def _start(self) -> None:
         try:
             import sounddevice as sd
         except ImportError:
+            self._ready.set()
             return
 
         max_samples = int(self._sample_rate * self._MAX_BUFFER_SEC)
@@ -51,18 +58,27 @@ class AudioOutput:
                     outdata.fill(0.0)
 
         try:
-            self._stream = sd.OutputStream(
+            if self._shutdown:
+                return
+            stream = sd.OutputStream(
                 samplerate=self._sample_rate,
                 channels=1,
                 dtype="float32",
                 blocksize=self._BLOCK,
                 callback=callback,
             )
-            self._stream.start()
+            stream.start()
+            if self._shutdown:
+                stream.stop()
+                stream.close()
+                return
+            self._stream = stream
             self.available = True
         except Exception:
             self._stream = None
             self.available = False
+        finally:
+            self._ready.set()
 
     def write(self, pcm: np.ndarray) -> None:
         if not self.available or pcm.size == 0:
@@ -75,8 +91,11 @@ class AudioOutput:
                 self._buf = self._buf[-max_samples:]
 
     def shutdown(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
+        self._shutdown = True
+        self._ready.wait(timeout=2.0)
+        stream: Optional[object] = self._stream
+        if stream is not None:
+            stream.stop()
+            stream.close()
             self._stream = None
         self.available = False

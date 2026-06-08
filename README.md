@@ -108,18 +108,19 @@ Settings live in **`~/.config/aircraftx/config.json`**. The file is created auto
 | `show_banner` | bool | `true` | Print ASCII banner on startup |
 | `replay_file` | string \| null | `null` | Path to raw IQ capture for offline replay |
 | `radio_channels` | array | built-in list | Editable preset airband channels (`id`, `name`, `freq_mhz`, `description`) |
+| `acars_channels` | array | built-in list | VHF ACARS frequencies for the ACARS dashboard (`id`, `name`, `freq_mhz`, `description`) |
 | `radio_local_lookup` | bool | `true` | Fetch nearby airport frequencies from [OurAirports](https://ourairports.com/data/) using `lat`/`lon` |
 | `radio_local_radius_km` | float | `80` | Search radius for local airport lookup |
 | `radio_local_max_airports` | int | `8` | Max nearby airports in the **Local** channel list |
 
-Example config for outdoor listening near NYC:
+Example config for outdoor listening with a reference position:
 
 ```json
 {
   "amp_enable": true,
   "indoor": false,
-  "lat": 40.450809,
-  "lon": -74.132874,
+  "lat": 40.400005,
+  "lon": -40.123456,
   "lna": 24,
   "refresh_hz": 2.0,
   "replay_file": null,
@@ -168,7 +169,7 @@ aircraftx --all-mode-s
 aircraftx --file captures/afternoon.iq
 
 # Silent run with reference position
-aircraftx --no-sound --lat 40.45 --lon -74.13
+aircraftx --no-sound --lat 40.00 --lon -40.00
 ```
 
 ## Dashboard

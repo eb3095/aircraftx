@@ -165,6 +165,8 @@ def _decode_key(raw: str) -> Optional[str]:
         return "last"
     if raw in ("r", "R"):
         return "dashboard_radio"
+    if raw in ("c", "C"):
+        return "dashboard_acars"
     if raw in ("d", "D"):
         return "dashboard_adsb"
     if raw in ("l", "L"):

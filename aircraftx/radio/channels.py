@@ -91,37 +91,4 @@ def build_channel_sets(
     return dedupe_channels(local), basic
 
 
-def build_channel_list(
-    *,
-    lat: Optional[float],
-    lon: Optional[float],
-    config_channels: Optional[Sequence[Mapping[str, Any]]],
-    local_lookup: bool = True,
-    local_radius_km: float = 80.0,
-    local_max_airports: int = 8,
-) -> List[AirbandChannel]:
-    """Legacy merge — prefer build_channel_sets for separate local/basic lists."""
-    local, basic = build_channel_sets(
-        lat=lat,
-        lon=lon,
-        config_channels=config_channels,
-        local_lookup=local_lookup,
-        local_radius_km=local_radius_km,
-        local_max_airports=local_max_airports,
-    )
-    return dedupe_channels([*local, *basic])
-
-
-def channel_by_id(
-    channel_id: str,
-    channels: Sequence[AirbandChannel] | None = None,
-) -> AirbandChannel | None:
-    pool = COMMON_AIRBAND_CHANNELS if channels is None else channels
-    for channel in pool:
-        if channel.channel_id == channel_id:
-            return channel
-    return None
-
-
-# Backward-compatible alias used in older imports/tests.
 COMMON_AIRBAND_CHANNELS: List[AirbandChannel] = parse_config_channels(None)

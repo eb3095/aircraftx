@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from aircraftx.acars.channel_defaults import DEFAULT_ACARS_CHANNELS
 from aircraftx.config_file import ConfigStore, UserConfig
 
 
@@ -46,6 +47,13 @@ def test_config_store_load_existing(tmp_path: Path):
     assert cfg.lna == 40
     assert cfg.vga == 50
     assert cfg.indoor is False
+
+
+def test_to_sniffer_config_includes_acars_channels():
+    cfg = UserConfig(acars_channels=[DEFAULT_ACARS_CHANNELS[0]])
+    sniff = cfg.to_sniffer_config()
+    assert len(sniff.acars_channels) == 1
+    assert sniff.acars_channels[0].channel_id == "131.550"
 
 
 def test_to_sniffer_config_indoor_preset():

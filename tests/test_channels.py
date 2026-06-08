@@ -63,8 +63,8 @@ def test_build_channel_sets_splits_local_and_basic(tmp_path, monkeypatch):
     )
 
     local, basic = build_channel_sets(
-        lat=40.450809,
-        lon=-74.132874,
+        lat=40.0,
+        lon=-74.0,
         config_channels=DEFAULT_RADIO_CHANNELS[:2],
         local_lookup=True,
         local_radius_km=80,

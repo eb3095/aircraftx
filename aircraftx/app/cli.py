@@ -159,6 +159,9 @@ def resolve_config(args: argparse.Namespace, user: UserConfig) -> SnifferConfig:
         local_radius_km=user.radio_local_radius_km,
         local_max_airports=user.radio_local_max_airports,
     )
+    from aircraftx.acars.channels import parse_acars_channels
+
+    acars = parse_acars_channels(user.acars_channels)
     return SnifferConfig.from_preset(
         indoor=args.indoor,
         lat=args.lat,
@@ -171,6 +174,7 @@ def resolve_config(args: argparse.Namespace, user: UserConfig) -> SnifferConfig:
         sound_enabled=args.sound_enabled,
         radio_local_channels=local,
         radio_basic_channels=basic,
+        acars_channels=acars,
     )
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
+    from aircraftx.acars.channels import AcarsChannel
     from aircraftx.radio.channels import AirbandChannel
 
 import numpy as np
@@ -36,11 +37,13 @@ AIRBAND_VOLUME_MAX = 12.0
 AIRBAND_VOLUME_STEP = 0.25
 WAVEFORM_HEIGHT = 7
 RADIO_CHANNEL_PAGE_SIZE = 15
+ACARS_CHANNEL_PAGE_SIZE = 8
 
 # --- UI / memory limits ---
 RECENT_MESSAGES_DISPLAY = 10
 MAX_RECENT_MESSAGES_STORE = 500
 MAX_RADIO_TRANSCRIPTS = 50
+MAX_ACARS_MESSAGES = 50
 MAX_ADSB_TRACKS = 10_000
 MAX_MODE_S_TRACKS = 10_000
 
@@ -130,6 +133,7 @@ class SnifferConfig:
     sound_enabled: bool = True
     radio_local_channels: Tuple["AirbandChannel", ...] = ()
     radio_basic_channels: Tuple["AirbandChannel", ...] = ()
+    acars_channels: Tuple["AcarsChannel", ...] = ()
 
     @classmethod
     def from_preset(
@@ -146,6 +150,7 @@ class SnifferConfig:
         sound_enabled: bool = True,
         radio_local_channels: Optional[List["AirbandChannel"]] = None,
         radio_basic_channels: Optional[List["AirbandChannel"]] = None,
+        acars_channels: Optional[List["AcarsChannel"]] = None,
     ) -> SnifferConfig:
         if indoor:
             demod = DemodSettings.indoor()
@@ -164,4 +169,5 @@ class SnifferConfig:
             sound_enabled=sound_enabled,
             radio_local_channels=tuple(radio_local_channels or ()),
             radio_basic_channels=tuple(radio_basic_channels or ()),
+            acars_channels=tuple(acars_channels or ()),
         )

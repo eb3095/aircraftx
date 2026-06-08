@@ -27,7 +27,13 @@ from aircraftx.config import (
 from aircraftx.decode.labels import table_type_is_adsb, table_type_label
 from aircraftx.decode.tracker import AircraftTracker
 from aircraftx.models.aircraft import Aircraft
-from aircraftx.ui.formatters import fmt_optional, message_summary
+from aircraftx.ui.formatters import (
+    fmt_altitude_ft,
+    fmt_optional,
+    fmt_speed_kt,
+    message_summary,
+)
+from aircraftx.log_writer import LogWriter
 from aircraftx.ui.sounds import DiscoverySound
 
 PAGE_SIZE = 12
@@ -48,10 +54,13 @@ class RecentMessage:
 
 
 class ConsoleDisplay:
-    def __init__(self, config: SnifferConfig) -> None:
+    def __init__(
+        self, config: SnifferConfig, log_writer: LogWriter | None = None
+    ) -> None:
         self.console = Console()
         self.adsb_only = config.adsb_only
         self.sound_enabled = config.sound_enabled
+        self._log = log_writer
         self.recent_adsb: Deque[RecentMessage] = deque(maxlen=MAX_RECENT_MESSAGES_STORE)
         self.recent_mode_s: Deque[RecentMessage] = deque(
             maxlen=MAX_RECENT_MESSAGES_STORE
@@ -75,8 +84,16 @@ class ConsoleDisplay:
         if is_adsb:
             self.recent_adsb.append(entry)
             self.maybe_play_adsb_discovery(aircraft)
+            if self._log is not None:
+                self._log.log_adsb(
+                    entry.timestamp, entry.icao, entry.msg_type, entry.summary
+                )
         else:
             self.recent_mode_s.append(entry)
+            if self._log is not None:
+                self._log.log_mode_s(
+                    entry.timestamp, entry.icao, entry.msg_type, entry.summary
+                )
 
     def maybe_play_adsb_discovery(self, aircraft: Aircraft) -> None:
         """Ping once per ICAO on the first ADS-B (DF17/18) frame, not on updates."""
@@ -233,8 +250,8 @@ class ConsoleDisplay:
         table.add_column("ICAO", style="bold white", no_wrap=True)
         table.add_column("Type", no_wrap=True)
         table.add_column("Callsign", style="cyan")
-        table.add_column("Alt", justify="right", style="yellow")
-        table.add_column("Spd", justify="right", style="green")
+        table.add_column("Alt (ft)", justify="right", style="yellow")
+        table.add_column("Spd (kt)", justify="right", style="green")
         table.add_column("Hdg", justify="right")
         table.add_column("Lat", style="dim")
         table.add_column("Lon", style="dim")
@@ -255,8 +272,8 @@ class ConsoleDisplay:
                 ac.icao,
                 Text(table_type_label(ac, adsb_table=self.adsb_only), style=type_style),
                 ac.callsign or "—",
-                fmt_optional(ac.altitude_ft),
-                fmt_optional(ac.speed_kts),
+                fmt_altitude_ft(ac.altitude_ft),
+                fmt_speed_kt(ac.speed_kts),
                 fmt_optional(ac.heading_deg, "°"),
                 fmt_optional(ac.latitude, "", na="—"),
                 fmt_optional(ac.longitude, "", na="—"),
@@ -326,6 +343,9 @@ class ConsoleDisplay:
         text.append("  ·  ", style="dim")
         text.append("R", style="bold cyan")
         text.append(" radio", style="dim")
+        text.append("  ·  ", style="dim")
+        text.append("C", style="bold cyan")
+        text.append(" ACARS", style="dim")
         if self.newest_first:
             text.append("  ·  ", style="dim")
             text.append("newest on page 1", style="italic green")

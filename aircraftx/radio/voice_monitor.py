@@ -27,6 +27,7 @@ from aircraftx.radio.audio_output import AudioOutput
 from aircraftx.radio.channels import COMMON_AIRBAND_CHANNELS, AirbandChannel
 from aircraftx.radio.speech_segmenter import SpeechSegmenter
 from aircraftx.radio.squelch import SquelchGate
+from aircraftx.log_writer import LogWriter
 from aircraftx.radio.transcriber import SpeechTranscriber, create_transcriber
 
 ChannelSource = Literal["local", "basic"]
@@ -48,7 +49,9 @@ class VoiceMonitor:
         basic_channels: Sequence[AirbandChannel] | None = None,
         *,
         channels: Sequence[AirbandChannel] | None = None,
+        log_writer: LogWriter | None = None,
     ) -> None:
+        self._log = log_writer
         if channels is not None:
             self._local_channels: List[AirbandChannel] = list(channels)
             self._basic_channels: List[AirbandChannel] = list(COMMON_AIRBAND_CHANNELS)
@@ -241,6 +244,12 @@ class VoiceMonitor:
     def squelch_down(self) -> float:
         return self.squelch.adjust(-self.squelch.step_db)
 
+    def _freq_mhz_for(self, channel_id: str) -> float | None:
+        for channel in self._all_channels():
+            if channel.channel_id == channel_id:
+                return channel.freq_mhz
+        return None
+
     def buffer_for(self, channel_id: str | None = None) -> Deque[TranscriptLine]:
         cid = channel_id or self.selected_channel().channel_id
         if cid not in self._buffers:
@@ -281,6 +290,10 @@ class VoiceMonitor:
                     channel_id=channel_id,
                 )
                 self._buffers[channel_id].append(line)
+                if self._log is not None:
+                    freq_mhz = self._freq_mhz_for(channel_id)
+                    if freq_mhz is not None:
+                        self._log.log_radio_transcript(freq_mhz, text)
             finally:
                 self._queue.task_done()
 

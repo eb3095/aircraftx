@@ -15,6 +15,20 @@ def fmt_optional(value: object, suffix: str = "", na: str = "—") -> str:
     return f"{value}{suffix}"
 
 
+def fmt_altitude_ft(altitude_ft: int | None) -> str:
+    if altitude_ft is None:
+        return "—"
+    return f"{altitude_ft:,} ft"
+
+
+def fmt_speed_kt(speed_kts: float | None) -> str:
+    if speed_kts is None:
+        return "—"
+    if float(speed_kts).is_integer():
+        return f"{int(speed_kts)} kt"
+    return f"{speed_kts:.1f} kt"
+
+
 def message_summary(aircraft: Aircraft) -> str:
     parts: List[str] = []
     if aircraft.callsign:
