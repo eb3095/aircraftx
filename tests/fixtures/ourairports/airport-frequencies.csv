@@ -1,0 +1,6 @@
+"id","airport_ref","airport_ident","type","description","frequency_mhz"
+1,1,"KAAA","CTAF","CTAF",122.8
+2,1,"KAAA","ATIS","ATIS",118.25
+3,2,"KBBB","TWR","TWR",119.5
+4,2,"KBBB","GND","GND",121.9
+5,3,"KCCC","CTAF","CTAF",122.9

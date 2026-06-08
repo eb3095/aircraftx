@@ -1,0 +1,6 @@
+# Runtime dependencies (also declared in pyproject.toml)
+numpy>=1.24
+pyModeS>=3.0
+rich>=13.0
+faster-whisper>=1.0
+sounddevice>=0.4.6

@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from aircraftx.radio.channels import COMMON_AIRBAND_CHANNELS, channel_by_id
+
+
+def test_common_channels_have_unique_ids():
+    ids = [ch.channel_id for ch in COMMON_AIRBAND_CHANNELS]
+    assert len(ids) == len(set(ids))
+
+
+def test_channel_freq_in_airband():
+    for ch in COMMON_AIRBAND_CHANNELS:
+        assert 118_000_000 <= ch.freq_hz <= 137_000_000
+
+
+def test_channel_by_id_lookup():
+    ch = channel_by_id("121.500")
+    assert ch is not None
+    assert ch.name == "Emergency (Guard)"

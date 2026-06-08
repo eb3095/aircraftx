@@ -1,0 +1,4 @@
+"id","ident","type","name","latitude_deg","longitude_deg","elevation_ft","continent","iso_country","iso_region","municipality","scheduled_service","icao_code","iata_code","gps_code","local_code","home_link","wikipedia_link","keywords"
+1,"KAAA","small_airport","Alpha Field",40.450000,-74.130000,10,"NA","US","US-NJ","Alpha","no","KAAA",,"KAAA","AAA",,,
+2,"KBBB","medium_airport","Bravo Municipal",40.500000,-74.200000,20,"NA","US","US-NJ","Bravo","yes","KBBB",,"KBBB","BBB",,,
+3,"KCCC","heliport","Charlie Heliport",40.460000,-74.140000,5,"NA","US","US-NJ","Charlie","no","KCCC",,"KCCC","CCC",,,
