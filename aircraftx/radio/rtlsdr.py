@@ -1,4 +1,4 @@
-"""HackRF One IQ capture via hackrf_transfer."""
+"""RTL-SDR IQ capture via rtl_sdr."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from aircraftx.radio.process_util import stop_subprocess
 from aircraftx.config import (
     CHUNK_SAMPLES,
     FREQ_HZ,
-    HACKRF_BINARY_PATHS,
+    RTL_SDR_BINARY_PATHS,
     SAMPLE_RATE,
     RadioConfig,
 )
 
 
-class HackRFReceiver:
+class RtlSdrReceiver:
     def __init__(
         self,
         config: RadioConfig,
@@ -27,39 +27,33 @@ class HackRFReceiver:
         sample_rate: int = SAMPLE_RATE,
     ) -> None:
         self._config = config
-        self._freq_hz = freq_hz
-        self._sample_rate = sample_rate
+        self._freq_hz = int(freq_hz)
+        self._sample_rate = int(sample_rate)
         self._proc: Optional[subprocess.Popen[bytes]] = None
 
     @staticmethod
     def find_binary() -> Optional[str]:
-        for candidate in HACKRF_BINARY_PATHS:
+        for candidate in RTL_SDR_BINARY_PATHS:
             path = shutil.which(candidate) if "/" not in candidate else candidate
             if path and os.path.isfile(path) and os.access(path, os.X_OK):
                 return path
         return None
 
     def start(self) -> None:
-        hackrf = self.find_binary()
-        if not hackrf:
-            raise RuntimeError(
-                "hackrf_transfer not found. Install with: brew install hackrf"
-            )
-
+        rtl_sdr = self.find_binary()
+        if not rtl_sdr:
+            raise RuntimeError("rtl_sdr not found. Install with: brew install rtl-sdr")
         cmd = [
-            hackrf,
-            "-r",
-            "-",
+            rtl_sdr,
             "-f",
             str(self._freq_hz),
             "-s",
             str(self._sample_rate),
-            "-l",
-            str(self._config.lna_gain),
             "-g",
-            str(self._config.vga_gain),
-            "-a",
-            "1" if self._config.amp_enable else "0",
+            str(self._config.tuner_gain),
+            "-p",
+            str(self._config.ppm_error),
+            "-",
         ]
         self._proc = subprocess.Popen(
             cmd,
@@ -78,13 +72,12 @@ class HackRFReceiver:
         return os.read(fd, CHUNK_SAMPLES * 2)
 
     def set_frequency(self, freq_hz: int) -> None:
-        """Retune the receiver (restarts hackrf_transfer if already running)."""
-        if freq_hz == self._freq_hz:
+        if int(freq_hz) == self._freq_hz:
             return
         running = self._proc is not None
         if running:
             self.stop()
-        self._freq_hz = freq_hz
+        self._freq_hz = int(freq_hz)
         if running:
             self.start()
 

@@ -27,6 +27,9 @@ class UserConfig:
     lna: int = 32
     vga: int = 48
     amp_enable: bool = True
+    backend: str = "auto"
+    tuner_gain: float = 40
+    ppm_error: int = 0
     sound_enabled: bool = True
     refresh_hz: float = 2.0
     show_banner: bool = True
@@ -63,6 +66,8 @@ class UserConfig:
             local_max_airports=self.radio_local_max_airports,
         )
         acars = parse_acars_channels(self.acars_channels)
+        from aircraftx.radio.backends import resolve_backend
+
         return SnifferConfig.from_preset(
             indoor=self.indoor,
             lat=self.lat,
@@ -70,6 +75,9 @@ class UserConfig:
             lna=self.lna,
             vga=self.vga,
             amp_enable=self.amp_enable,
+            backend=resolve_backend(self.backend),
+            tuner_gain=self.tuner_gain,
+            ppm_error=self.ppm_error,
             refresh_hz=self.refresh_hz,
             sound_enabled=self.sound_enabled,
             radio_local_channels=local,

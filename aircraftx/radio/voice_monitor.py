@@ -49,9 +49,11 @@ class VoiceMonitor:
         basic_channels: Sequence[AirbandChannel] | None = None,
         *,
         channels: Sequence[AirbandChannel] | None = None,
+        backend: str = "hackrf",
         log_writer: LogWriter | None = None,
     ) -> None:
         self._log = log_writer
+        self._backend = backend
         if channels is not None:
             self._local_channels: List[AirbandChannel] = list(channels)
             self._basic_channels: List[AirbandChannel] = list(COMMON_AIRBAND_CHANNELS)
@@ -258,7 +260,7 @@ class VoiceMonitor:
 
     def process_iq(self, raw: bytes, now: float | None = None) -> None:
         now = now or time.time()
-        iq = IQConverter.from_bytes(raw)
+        iq = IQConverter.from_radio_bytes(raw, self._backend)
         if iq.size == 0:
             return
 

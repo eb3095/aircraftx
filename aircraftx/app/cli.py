@@ -10,6 +10,7 @@ from aircraftx import __app_name__, __version__
 from aircraftx.app.sniffer import AircraftXSniffer
 from aircraftx.config import SnifferConfig
 from aircraftx.config_file import DEFAULT_CONFIG_PATH, ConfigStore, UserConfig
+from aircraftx.radio.backends import resolve_backend
 from aircraftx.radio.channels import build_channel_sets
 
 BANNER = r"""
@@ -85,6 +86,12 @@ def build_parser(defaults: UserConfig) -> argparse.ArgumentParser:
     )
     parser.set_defaults(adsb_only=True)
 
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "hackrf", "rtlsdr"],
+        default=defaults.backend,
+        help="SDR backend preference (falls back to the other device if unavailable)",
+    )
     parser.add_argument(
         "--lna",
         type=int,
@@ -170,6 +177,9 @@ def resolve_config(args: argparse.Namespace, user: UserConfig) -> SnifferConfig:
         lna=args.lna,
         vga=args.vga,
         amp_enable=args.amp_enable,
+        backend=resolve_backend(args.backend),
+        tuner_gain=user.tuner_gain,
+        ppm_error=user.ppm_error,
         refresh_hz=args.refresh,
         sound_enabled=args.sound_enabled,
         radio_local_channels=local,

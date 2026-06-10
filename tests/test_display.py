@@ -9,6 +9,8 @@ from rich.console import Console
 from aircraftx.config import SnifferConfig
 from aircraftx.decode.tracker import AircraftTracker
 from aircraftx.models.aircraft import Aircraft
+from aircraftx.lookup.models import AircraftEnrichment
+from aircraftx.lookup.service import AircraftLookupService
 from aircraftx.ui.display import PAGE_SIZE, ConsoleDisplay
 from aircraftx.ui.sounds import DiscoverySound
 
@@ -141,6 +143,151 @@ def test_adsb_discovery_sound_once_per_icao():
         display.push_message(ac, 100.0)
         display.push_message(ac, 101.0)
         assert play.call_count == 1
+
+
+def test_enrichment_panel_only_in_adsb_mode():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        tracker = AircraftTracker()
+        now = 1000.0
+        ac = Aircraft(icao="4010EE", callsign="EZY1", first_seen=now)
+        ac.last_df = 17
+        ac.df17_count = 1
+        ac.message_count = 1
+        tracker.aircraft["4010EE"] = ac
+        lookup.sync_active_icaos({"4010EE"})
+        with lookup._lock:
+            lookup._cache["4010EE"] = AircraftEnrichment(
+                icao="4010EE",
+                status="ready",
+                registration="G-EZBZ",
+                manufacturer="Airbus",
+                route="EGLL-EIDW",
+                departure="EGLL",
+                destination="EIDW",
+            )
+        display.last_discovered_icao = "4010EE"
+        group = display.render(tracker, now, config.radio)
+        rendered = Console(file=StringIO(), width=120, record=True)
+        rendered.print(group)
+        text = rendered.export_text()
+        assert "Aircraft Details" in text
+        assert "G-EZBZ" in text
+        assert "EGLL" in text
+    finally:
+        lookup.shutdown()
+
+
+def test_mode_s_view_hides_enrichment_panel():
+    config = SnifferConfig.from_preset(adsb_only=False)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        tracker = AircraftTracker()
+        now = 1000.0
+        ac = Aircraft(icao="MODE01", first_seen=now)
+        ac.last_df = 11
+        ac.message_count = 1
+        tracker.aircraft["MODE01"] = ac
+        display.last_discovered_icao = "MODE01"
+        group = display.render(tracker, now, config.radio)
+        rendered = Console(file=StringIO(), width=120, record=True)
+        rendered.print(group)
+        text = rendered.export_text()
+        assert "Aircraft Details" not in text
+    finally:
+        lookup.shutdown()
+
+
+def test_deselect_clears_highlight():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        tracker = AircraftTracker()
+        now = 1000.0
+        ac = Aircraft(icao="4010EE", first_seen=now)
+        ac.last_df = 17
+        ac.df17_count = 1
+        ac.message_count = 1
+        tracker.aircraft["4010EE"] = ac
+        display.last_discovered_icao = "4010EE"
+        display.handle_key("channel_down", 1)
+        assert display._highlight_icao(display._ordered_aircraft(tracker, now)) == "4010EE"
+        display.handle_key("deselect", 1)
+        assert display._highlight_icao(display._ordered_aircraft(tracker, now)) is None
+        assert display._focus_icao(display._ordered_aircraft(tracker, now)) == "4010EE"
+    finally:
+        lookup.shutdown()
+
+
+def test_first_arrow_down_selects_top_row():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    display = ConsoleDisplay(config)
+    tracker = AircraftTracker()
+    now = 1000.0
+    old = Aircraft(icao="OLD001", first_seen=now)
+    old.last_df = 17
+    old.df17_count = 1
+    old.message_count = 1
+    new = Aircraft(icao="NEW001", first_seen=now + 10)
+    new.last_df = 17
+    new.df17_count = 1
+    new.message_count = 1
+    tracker.aircraft["OLD001"] = old
+    tracker.aircraft["NEW001"] = new
+    display.newest_first = True
+    display.last_discovered_icao = "NEW001"
+    display.handle_key("channel_down", 2)
+    ordered = display._ordered_aircraft(tracker, now + 20)
+    assert display.selected_index == 0
+    assert ordered[0].icao == "NEW001"
+    display.handle_key("channel_down", 2)
+    assert display.selected_index == 1
+    assert ordered[1].icao == "OLD001"
+
+
+def test_deselect_shows_latest_not_selected():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        tracker = AircraftTracker()
+        now = 1000.0
+        for icao in ("OLD001", "NEW001"):
+            ac = Aircraft(icao=icao, first_seen=now)
+            ac.last_df = 17
+            ac.df17_count = 1
+            ac.message_count = 1
+            tracker.aircraft[icao] = ac
+        display.newest_first = True
+        display.last_discovered_icao = "NEW001"
+        display.handle_key("channel_down", 2)
+        assert display.selected_index == 0
+        display.handle_key("deselect", 2)
+        assert display.selected_index is None
+        assert display._focus_icao(display._ordered_aircraft(tracker, now)) == "NEW001"
+    finally:
+        lookup.shutdown()
+
+
+def test_adsb_lookup_after_mode_s_seen():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        mode_s = Aircraft(icao="4840D6")
+        mode_s.last_df = 11
+        adsb = Aircraft(icao="4840D6", callsign="")
+        adsb.last_df = 17
+        display.push_message(mode_s, 100.0)
+        display.push_message(adsb, 101.0)
+        assert "4840D6" in display._adsb_lookup_icaos
+        assert lookup.pending_count() >= 1
+    finally:
+        lookup.shutdown()
 
 
 def test_no_sound_for_mode_s_only():

@@ -34,6 +34,8 @@ from aircraftx.ui.formatters import (
     message_summary,
 )
 from aircraftx.log_writer import LogWriter
+from aircraftx.lookup.models import AircraftEnrichment
+from aircraftx.lookup.service import AircraftLookupService
 from aircraftx.ui.sounds import DiscoverySound
 
 PAGE_SIZE = 12
@@ -55,12 +57,16 @@ class RecentMessage:
 
 class ConsoleDisplay:
     def __init__(
-        self, config: SnifferConfig, log_writer: LogWriter | None = None
+        self,
+        config: SnifferConfig,
+        log_writer: LogWriter | None = None,
+        lookup: AircraftLookupService | None = None,
     ) -> None:
         self.console = Console()
         self.adsb_only = config.adsb_only
         self.sound_enabled = config.sound_enabled
         self._log = log_writer
+        self._lookup = lookup
         self.recent_adsb: Deque[RecentMessage] = deque(maxlen=MAX_RECENT_MESSAGES_STORE)
         self.recent_mode_s: Deque[RecentMessage] = deque(
             maxlen=MAX_RECENT_MESSAGES_STORE
@@ -69,6 +75,9 @@ class ConsoleDisplay:
         self.adsb_notified: Set[str] = set()
         self.page_index = 0
         self.newest_first = True
+        self.selected_index: Optional[int] = None
+        self.last_discovered_icao: Optional[str] = None
+        self._adsb_lookup_icaos: Set[str] = set()
 
     def push_message(self, aircraft: Aircraft, now: float) -> None:
         is_new = aircraft.icao not in self.seen_icao
@@ -83,6 +92,16 @@ class ConsoleDisplay:
         )
         if is_adsb:
             self.recent_adsb.append(entry)
+            if is_new:
+                self.last_discovered_icao = aircraft.icao
+            if self._lookup is not None:
+                key = aircraft.icao.strip().upper()
+                callsign = (aircraft.callsign or "").strip()
+                if key not in self._adsb_lookup_icaos:
+                    self._adsb_lookup_icaos.add(key)
+                    self._lookup.enqueue_aircraft(aircraft.icao)
+                if callsign:
+                    self._lookup.maybe_route(aircraft.icao, callsign)
             self.maybe_play_adsb_discovery(aircraft)
             if self._log is not None:
                 self._log.log_adsb(
@@ -114,9 +133,51 @@ class ConsoleDisplay:
         elif key == "first":
             self.newest_first = False
             self.page_index = 0
+            self.selected_index = None
         elif key == "last":
             self.newest_first = True
             self.page_index = 0
+            self.selected_index = None
+        elif key in ("select_up", "channel_up"):
+            self._move_selection(total_rows, -1)
+        elif key in ("select_down", "channel_down"):
+            self._move_selection(total_rows, 1)
+        elif key == "deselect":
+            self.selected_index = None
+
+    def _move_selection(self, total_rows: int, delta: int) -> None:
+        if total_rows <= 0:
+            self.selected_index = None
+            return
+        if self.selected_index is None:
+            # First arrow press: ↓ starts at top row, ↑ at bottom row.
+            self.selected_index = 0 if delta > 0 else total_rows - 1
+        else:
+            self.selected_index = (self.selected_index + delta) % total_rows
+        self._sync_page_to_selection(total_rows)
+
+    def _sync_page_to_selection(self, total_rows: int) -> None:
+        if self.selected_index is None:
+            return
+        self.page_index = self.selected_index // PAGE_SIZE
+        self.sync_page(total_rows)
+
+    @property
+    def _last_ordered_icaos(self) -> List[str]:
+        return getattr(self, "_ordered_icao_cache", [])
+
+    def _highlight_icao(self, ordered: List[Aircraft]) -> Optional[str]:
+        if self.selected_index is None:
+            return None
+        if 0 <= self.selected_index < len(ordered):
+            return ordered[self.selected_index].icao
+        return None
+
+    def _focus_icao(self, ordered: List[Aircraft]) -> Optional[str]:
+        highlighted = self._highlight_icao(ordered)
+        if highlighted is not None:
+            return highlighted
+        return self.last_discovered_icao
 
     def sync_page(self, total_rows: int) -> None:
         pages = self._page_count(total_rows)
@@ -157,14 +218,17 @@ class ConsoleDisplay:
         radio: RadioConfig,
     ) -> Group:
         ordered = self._ordered_aircraft(tracker, now)
+        self._ordered_icao_cache = [ac.icao for ac in ordered]
         self.sync_page(len(ordered))
 
         parts: List[RenderableType] = [
             self._header(self.adsb_only),
             self._status_line(tracker, now, radio),
             self._aircraft_table(ordered, now),
-            self._recent_panel(),
         ]
+        if self.adsb_only:
+            parts.append(self._enrichment_panel(ordered))
+        parts.append(self._recent_panel())
         hint = self._hint_panel(tracker, now)
         if hint:
             parts.append(hint)
@@ -211,6 +275,13 @@ class ConsoleDisplay:
             f"{pending} pending",
             style="yellow" if pending else "dim",
         )
+        if self.adsb_only and self._lookup is not None:
+            lookup_pending = self._lookup.pending_count()
+            text.append("  │  ")
+            text.append(
+                f"{lookup_pending} lookup pending",
+                style="yellow" if lookup_pending else "dim",
+            )
         text.append("  │  ")
         text.append(f"{tracker.total_crc_ok} accepted", style="dim")
         if tracker.lat_ref is not None and tracker.lon_ref is not None:
@@ -265,9 +336,11 @@ class ConsoleDisplay:
             )
             return table
 
+        highlight = self._highlight_icao(ordered) if self.adsb_only else None
         for ac in shown:
             is_adsb_row = table_type_is_adsb(ac, adsb_table=self.adsb_only)
             type_style = "bold green" if is_adsb_row else "yellow"
+            row_style = "reverse" if highlight and ac.icao == highlight else None
             table.add_row(
                 ac.icao,
                 Text(table_type_label(ac, adsb_table=self.adsb_only), style=type_style),
@@ -280,8 +353,79 @@ class ConsoleDisplay:
                 ac.squawk or "—",
                 str(ac.message_count),
                 f"{now - ac.last_seen:.0f}s",
+                style=row_style,
             )
         return table
+
+    def _enrichment_panel(self, ordered: List[Aircraft]) -> Panel:
+        focus_icao = self._focus_icao(ordered)
+        if not focus_icao:
+            body: RenderableType = _dim_text("Waiting for new ADS-B aircraft…")
+            title = "[bold]Aircraft Details[/bold]"
+            return Panel(body, title=title, border_style="cyan", padding=(0, 1))
+
+        enrichment = self._lookup.get(focus_icao) if self._lookup else None
+        ac = next((a for a in ordered if a.icao == focus_icao), None)
+        body = self._format_enrichment(focus_icao, enrichment, ac)
+        if self.selected_index is not None:
+            title = f"[bold]Aircraft Details[/bold] · {focus_icao} [dim](selected)[/]"
+        else:
+            title = f"[bold]Aircraft Details[/bold] · {focus_icao} [dim](latest)[/]"
+        return Panel(body, title=title, border_style="cyan", padding=(0, 1))
+
+    def _format_enrichment(
+        self,
+        icao: str,
+        enrichment: Optional[AircraftEnrichment],
+        aircraft: Optional[Aircraft],
+    ) -> Text:
+        text = Text()
+        text.append("ICAO ", style="dim")
+        text.append(icao, style="bold white")
+        if aircraft and aircraft.callsign:
+            text.append("  ")
+            text.append("Callsign ", style="dim")
+            text.append(aircraft.callsign.strip(), style="cyan")
+
+        if enrichment is None:
+            text.append("\n")
+            text.append_text(_dim_text("Lookup queued…"))
+            return text
+
+        if enrichment.status in ("queued", "loading"):
+            text.append("\n")
+            detail = enrichment.error or "Lookup pending…"
+            text.append_text(_dim_text(detail))
+            return text
+
+        if enrichment.status == "error":
+            text.append("\n")
+            text.append(enrichment.error or "Lookup failed", style="red")
+            return text
+
+        fields = [
+            ("Registration", enrichment.registration),
+            ("Type", enrichment.aircraft_type or enrichment.icao_type_code),
+            ("Manufacturer", enrichment.manufacturer),
+            ("Operator", enrichment.operator),
+            ("Owner", enrichment.owner),
+            ("Flight", enrichment.flight),
+            ("Route", enrichment.route),
+            ("Departure", enrichment.departure),
+            ("Destination", enrichment.destination),
+        ]
+        shown = False
+        for label, value in fields:
+            if not value:
+                continue
+            shown = True
+            text.append("\n")
+            text.append(f"{label} ", style="dim")
+            text.append(value, style="bold" if label == "Registration" else "")
+        if not shown:
+            text.append("\n")
+            text.append_text(_dim_text("No enrichment data available."))
+        return text
 
     def _format_recent_line(self, msg: RecentMessage, *, is_adsb: bool) -> Text:
         line = Text()
@@ -340,6 +484,13 @@ class ConsoleDisplay:
         text.append("  ·  ", style="dim")
         text.append("A", style="bold cyan")
         text.append(" ADS-B", style="dim")
+        if self.adsb_only:
+            text.append("  ·  ", style="dim")
+            text.append("↑↓", style="bold cyan")
+            text.append(" select", style="dim")
+            text.append("  ·  ", style="dim")
+            text.append("Esc", style="bold cyan")
+            text.append(" latest", style="dim")
         text.append("  ·  ", style="dim")
         text.append("R", style="bold cyan")
         text.append(" radio", style="dim")

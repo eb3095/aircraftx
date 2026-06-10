@@ -73,6 +73,12 @@ HACKRF_BINARY_PATHS = (
     "/usr/local/bin/hackrf_transfer",
 )
 
+RTL_SDR_BINARY_PATHS = (
+    "rtl_sdr",
+    "/opt/homebrew/bin/rtl_sdr",
+    "/usr/local/bin/rtl_sdr",
+)
+
 
 @dataclass(frozen=True)
 class DemodSettings:
@@ -114,9 +120,12 @@ class TrackerSettings:
 
 @dataclass(frozen=True)
 class RadioConfig:
+    backend: str = "hackrf"
     lna_gain: int = 24
     vga_gain: int = 40
     amp_enable: bool = True
+    tuner_gain: float = 40
+    ppm_error: int = 0
 
 
 @dataclass(frozen=True)
@@ -146,6 +155,9 @@ class SnifferConfig:
         lna: int = 24,
         vga: int = 40,
         amp_enable: bool = True,
+        backend: str = "hackrf",
+        tuner_gain: float = 40,
+        ppm_error: int = 0,
         refresh_hz: float = 2.0,
         sound_enabled: bool = True,
         radio_local_channels: Optional[List["AirbandChannel"]] = None,
@@ -164,7 +176,14 @@ class SnifferConfig:
             adsb_only=adsb_only,
             demod=demod,
             tracker=tracker,
-            radio=RadioConfig(lna_gain=lna, vga_gain=vga, amp_enable=amp_enable),
+            radio=RadioConfig(
+                backend=backend,
+                lna_gain=lna,
+                vga_gain=vga,
+                amp_enable=amp_enable,
+                tuner_gain=tuner_gain,
+                ppm_error=ppm_error,
+            ),
             refresh_hz=refresh_hz,
             sound_enabled=sound_enabled,
             radio_local_channels=tuple(radio_local_channels or ()),

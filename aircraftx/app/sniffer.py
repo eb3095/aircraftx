@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import signal
 import time
 from typing import Literal
 
 import numpy as np
 from rich.live import Live
 
+from aircraftx.app.shutdown import ShutdownCoordinator
 from aircraftx.config import FREQ_HZ, SnifferConfig
 from aircraftx.log_writer import LogWriter
 from aircraftx.decode.tracker import AircraftTracker
 from aircraftx.dsp.demodulator import ModeSDemodulator
 from aircraftx.dsp.iq import IQConverter
-from aircraftx.radio.hackrf import HackRFReceiver
+from aircraftx.radio.receiver import make_receiver
 from aircraftx.radio.voice_monitor import VoiceMonitor
 from aircraftx.acars.monitor import AcarsMonitor
+from aircraftx.lookup.service import AircraftLookupService
 from aircraftx.ui.acars_display import AcarsDisplay
 from aircraftx.ui.display import ConsoleDisplay
 from aircraftx.ui.keyboard import drain_keys, restore_terminal, terminal_session
@@ -37,20 +38,23 @@ class AircraftXSniffer:
             settings=config.tracker,
         )
         self.demodulator = ModeSDemodulator(config.demod)
-        self.display = ConsoleDisplay(config, self._log_writer)
+        self._lookup = AircraftLookupService()
+        self.display = ConsoleDisplay(config, self._log_writer, self._lookup)
         self.voice_monitor = VoiceMonitor(
             config.radio_local_channels,
             config.radio_basic_channels,
+            backend=config.radio.backend,
             log_writer=self._log_writer,
         )
         self.radio_display = RadioDisplay(self.voice_monitor, config.radio)
         self.acars_monitor = AcarsMonitor(
             config.acars_channels,
+            backend=config.radio.backend,
             log_writer=self._log_writer,
         )
         self.acars_display = AcarsDisplay(self.acars_monitor, config.radio)
         self.dashboard: DashboardMode = "adsb"
-        self.receiver = HackRFReceiver(config.radio, freq_hz=self._tuned_frequency())
+        self.receiver = make_receiver(config.radio, freq_hz=self._tuned_frequency())
 
     def _tuned_frequency(self) -> int:
         if self.dashboard == "radio":
@@ -77,7 +81,17 @@ class AircraftXSniffer:
             return self.radio_display.render()
         if self.dashboard == "acars":
             return self.acars_display.render()
+        if self.dashboard == "adsb":
+            self._sync_lookup_cache(now)
         return self.display.render(self.tracker, now, self.config.radio)
+
+    def _sync_lookup_cache(self, now: float) -> None:
+        active = {
+            ac.icao.upper()
+            for ac in self.tracker.confirmed_aircraft(now)
+            if ac.df17_count > 0
+        }
+        self._lookup.sync_active_icaos(active)
 
     def _handle_keys(self, live: Live, last_render: float) -> tuple[bool, float]:
         """Process keyboard input. Returns (should_continue, last_render)."""
@@ -138,16 +152,17 @@ class AircraftXSniffer:
             last_render = now
         return True, last_render
 
+    def _teardown_live(self) -> None:
+        self._lookup.shutdown()
+        self.voice_monitor.shutdown()
+        self.receiver.stop(fast=True)
+        self._log_writer.close()
+
     def run_live(self) -> None:
         self.receiver.start()
-
-        running = True
-
-        def handle_sigint(_signum: int, _frame: object) -> None:
-            nonlocal running
-            running = False
-
-        signal.signal(signal.SIGINT, handle_sigint)
+        shutdown = ShutdownCoordinator()
+        shutdown.on_exit(self._teardown_live)
+        shutdown.install()
 
         overlap = np.array([], dtype=np.complex64)
         last_render = 0.0
@@ -161,16 +176,20 @@ class AircraftXSniffer:
                     screen=True,
                     transient=False,
                 ) as live:
-                    while running:
+                    while shutdown.running:
                         now = time.time()
-                        running, last_render = self._handle_keys(live, last_render)
-                        if not running:
+                        shutdown.running, last_render = self._handle_keys(live, last_render)
+                        if not shutdown.running:
                             break
 
-                        chunk = self.receiver.read_chunk()
+                        chunk = self.receiver.read_chunk(
+                            timeout=0.0 if not shutdown.running else 0.05
+                        )
                         if chunk:
                             if self.dashboard == "adsb":
-                                iq = IQConverter.from_bytes(chunk)
+                                iq = IQConverter.from_radio_bytes(
+                                    chunk, self.config.radio.backend
+                                )
                                 if iq.size > 0:
                                     buffer = np.concatenate([overlap, iq])
                                     messages = self.demodulator.demodulate(buffer)
@@ -182,24 +201,22 @@ class AircraftXSniffer:
                                 self.acars_monitor.process_iq(chunk, now)
                         elif self.receiver.exited:
                             raise RuntimeError(
-                                "hackrf_transfer exited. "
-                                "Check HackRF USB connection."
+                                f"{self.config.radio.backend} receiver exited. "
+                                "Check radio connection."
                             )
 
                         if now - last_render >= 1.0 / self.config.refresh_hz:
                             live.update(self._render(now))
                             last_render = now
         finally:
-            self.voice_monitor.shutdown()
-            self.receiver.stop()
-            self._log_writer.close()
+            shutdown.cleanup()
             restore_terminal()
 
     def run_file(self, path: str) -> None:
         try:
             with open(path, "rb") as fh:
                 data = fh.read()
-            iq = IQConverter.from_bytes(data)
+            iq = IQConverter.from_radio_bytes(data, self.config.radio.backend)
             messages = self.demodulator.demodulate(iq)
             now = time.time()
             self._process_messages(messages, now)

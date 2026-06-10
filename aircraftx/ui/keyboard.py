@@ -138,7 +138,7 @@ def _read_key_bytes() -> str:
 
     if key.startswith("\x1b") and not _esc_sequence_complete(key):
         key = _wait_for_esc_completion(key)
-        if not _esc_sequence_complete(key):
+        if key != "\x1b" and not _esc_sequence_complete(key):
             _pending = key + remainder
             return ""
 
@@ -182,7 +182,7 @@ def _decode_key(raw: str) -> Optional[str]:
 
     rest = raw[1:]
     if not rest:
-        return None
+        return "deselect"
 
     if rest[0] in "[O":
         final = rest[-1]

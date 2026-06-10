@@ -31,9 +31,11 @@ class AcarsMonitor:
         channels: Sequence[AcarsChannel] | None = None,
         *,
         config_channels: Sequence[Mapping[str, Any]] | None = None,
+        backend: str = "hackrf",
         log_writer: LogWriter | None = None,
     ) -> None:
         self._log = log_writer
+        self._backend = backend
         if channels is not None:
             self._channels = list(channels)
         else:
@@ -110,7 +112,7 @@ class AcarsMonitor:
 
     def process_iq(self, chunk: bytes, now: float | None = None) -> None:
         ts = time.strftime("%H:%M:%S", time.localtime(now or time.time()))
-        iq = IQConverter.from_bytes(chunk)
+        iq = IQConverter.from_radio_bytes(chunk, self._backend)
         if iq.size == 0:
             return
 
