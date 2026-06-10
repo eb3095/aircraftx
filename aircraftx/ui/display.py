@@ -18,6 +18,7 @@ from rich.text import Text
 from aircraftx import __app_name__
 from aircraftx.ui.bars import FullWidthBar
 from aircraftx.config import (
+    MAP_TRAIL_MAX_POINTS,
     MAX_RECENT_MESSAGES_STORE,
     PREFERRED_DF,
     RECENT_MESSAGES_DISPLAY,
@@ -37,6 +38,7 @@ from aircraftx.log_writer import LogWriter
 from aircraftx.lookup.models import AircraftEnrichment
 from aircraftx.lookup.service import AircraftLookupService
 from aircraftx.ui.sounds import DiscoverySound
+from aircraftx.ui.map_window import PositionTrailStore
 
 PAGE_SIZE = 12
 
@@ -75,9 +77,11 @@ class ConsoleDisplay:
         self.adsb_notified: Set[str] = set()
         self.page_index = 0
         self.newest_first = True
+        self.selected_icao: Optional[str] = None
         self.selected_index: Optional[int] = None
         self.last_discovered_icao: Optional[str] = None
         self._adsb_lookup_icaos: Set[str] = set()
+        self.trails = PositionTrailStore(maxlen=MAP_TRAIL_MAX_POINTS)
 
     def push_message(self, aircraft: Aircraft, now: float) -> None:
         is_new = aircraft.icao not in self.seen_icao
@@ -92,7 +96,8 @@ class ConsoleDisplay:
         )
         if is_adsb:
             self.recent_adsb.append(entry)
-            if is_new:
+            # Match discovery ping: first ADS-B frame for this ICAO (even if Mode-S seen first).
+            if aircraft.icao not in self.adsb_notified:
                 self.last_discovered_icao = aircraft.icao
             if self._lookup is not None:
                 key = aircraft.icao.strip().upper()
@@ -102,6 +107,12 @@ class ConsoleDisplay:
                     self._lookup.enqueue_aircraft(aircraft.icao)
                 if callsign:
                     self._lookup.maybe_route(aircraft.icao, callsign)
+            if (
+                is_adsb
+                and aircraft.latitude is not None
+                and aircraft.longitude is not None
+            ):
+                self.trails.record(aircraft.icao, aircraft.latitude, aircraft.longitude)
             self.maybe_play_adsb_discovery(aircraft)
             if self._log is not None:
                 self._log.log_adsb(
@@ -124,7 +135,11 @@ class ConsoleDisplay:
     def _active_recent(self) -> Deque[RecentMessage]:
         return self.recent_adsb if self.adsb_only else self.recent_mode_s
 
-    def handle_key(self, key: str, total_rows: int) -> None:
+    def handle_key(self, key: str, tracker: AircraftTracker, now: float) -> None:
+        ordered = self._ordered_aircraft(tracker, now)
+        icaos = [ac.icao for ac in ordered]
+        self._ordered_icao_cache = icaos
+        total_rows = len(ordered)
         pages = self._page_count(total_rows)
         if key == "prev":
             self.page_index = max(0, self.page_index - 1)
@@ -133,44 +148,69 @@ class ConsoleDisplay:
         elif key == "first":
             self.newest_first = False
             self.page_index = 0
-            self.selected_index = None
+            self._clear_selection()
         elif key == "last":
             self.newest_first = True
             self.page_index = 0
-            self.selected_index = None
+            self._clear_selection()
         elif key in ("select_up", "channel_up"):
-            self._move_selection(total_rows, -1)
+            self._move_selection(icaos, -1)
         elif key in ("select_down", "channel_down"):
-            self._move_selection(total_rows, 1)
+            self._move_selection(icaos, 1)
         elif key == "deselect":
-            self.selected_index = None
+            self._clear_selection()
 
-    def _move_selection(self, total_rows: int, delta: int) -> None:
+    def _clear_selection(self) -> None:
+        self.selected_icao = None
+        self.selected_index = None
+
+    def _move_selection(self, icaos: List[str], delta: int) -> None:
+        total_rows = len(icaos)
         if total_rows <= 0:
-            self.selected_index = None
+            self._clear_selection()
             return
-        if self.selected_index is None:
+        if self.selected_icao is None:
             # First arrow press: ↓ starts at top row, ↑ at bottom row.
-            self.selected_index = 0 if delta > 0 else total_rows - 1
+            self.selected_icao = icaos[0 if delta > 0 else total_rows - 1]
         else:
-            self.selected_index = (self.selected_index + delta) % total_rows
-        self._sync_page_to_selection(total_rows)
+            try:
+                idx = icaos.index(self.selected_icao)
+            except ValueError:
+                idx = 0 if delta > 0 else total_rows - 1
+            self.selected_icao = icaos[(idx + delta) % total_rows]
+        self._apply_selection(icaos)
 
-    def _sync_page_to_selection(self, total_rows: int) -> None:
-        if self.selected_index is None:
+    def _apply_selection(self, icaos: List[str]) -> None:
+        if self.selected_icao is None or self.selected_icao not in icaos:
+            self._clear_selection()
             return
+        self.selected_index = icaos.index(self.selected_icao)
         self.page_index = self.selected_index // PAGE_SIZE
-        self.sync_page(total_rows)
+        self.sync_page(len(icaos))
+
+    def _sync_selection_from_order(self, ordered: List[Aircraft]) -> None:
+        icaos = [ac.icao for ac in ordered]
+        self._ordered_icao_cache = icaos
+        if self.selected_icao is None:
+            self.selected_index = None
+            self.sync_page(len(icaos))
+            return
+        if self.selected_icao in icaos:
+            self.selected_index = icaos.index(self.selected_icao)
+            self.page_index = self.selected_index // PAGE_SIZE
+        else:
+            self._clear_selection()
+        self.sync_page(len(icaos))
 
     @property
     def _last_ordered_icaos(self) -> List[str]:
         return getattr(self, "_ordered_icao_cache", [])
 
     def _highlight_icao(self, ordered: List[Aircraft]) -> Optional[str]:
-        if self.selected_index is None:
+        if self.selected_icao is None:
             return None
-        if 0 <= self.selected_index < len(ordered):
-            return ordered[self.selected_index].icao
+        if any(ac.icao == self.selected_icao for ac in ordered):
+            return self.selected_icao
         return None
 
     def _focus_icao(self, ordered: List[Aircraft]) -> Optional[str]:
@@ -178,6 +218,16 @@ class ConsoleDisplay:
         if highlighted is not None:
             return highlighted
         return self.last_discovered_icao
+
+    def map_focus_icao(self, tracker: AircraftTracker, now: float) -> Optional[str]:
+        """ICAO for map/details when deselected (latest) or selected."""
+        if not self.adsb_only:
+            return None
+        ordered = self._ordered_aircraft(tracker, now)
+        return self._focus_icao(ordered)
+
+    def map_focus_mode(self) -> str:
+        return "selected" if self.selected_icao is not None else "latest"
 
     def sync_page(self, total_rows: int) -> None:
         pages = self._page_count(total_rows)
@@ -218,8 +268,7 @@ class ConsoleDisplay:
         radio: RadioConfig,
     ) -> Group:
         ordered = self._ordered_aircraft(tracker, now)
-        self._ordered_icao_cache = [ac.icao for ac in ordered]
-        self.sync_page(len(ordered))
+        self._sync_selection_from_order(ordered)
 
         parts: List[RenderableType] = [
             self._header(self.adsb_only),
@@ -367,7 +416,7 @@ class ConsoleDisplay:
         enrichment = self._lookup.get(focus_icao) if self._lookup else None
         ac = next((a for a in ordered if a.icao == focus_icao), None)
         body = self._format_enrichment(focus_icao, enrichment, ac)
-        if self.selected_index is not None:
+        if self.selected_icao is not None:
             title = f"[bold]Aircraft Details[/bold] · {focus_icao} [dim](selected)[/]"
         else:
             title = f"[bold]Aircraft Details[/bold] · {focus_icao} [dim](latest)[/]"
@@ -491,6 +540,9 @@ class ConsoleDisplay:
             text.append("  ·  ", style="dim")
             text.append("Esc", style="bold cyan")
             text.append(" latest", style="dim")
+            text.append("  ·  ", style="dim")
+            text.append("M", style="bold cyan")
+            text.append(" map", style="dim")
         text.append("  ·  ", style="dim")
         text.append("R", style="bold cyan")
         text.append(" radio", style="dim")

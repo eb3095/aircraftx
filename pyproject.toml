@@ -29,6 +29,7 @@ dependencies = [
     "rich>=13.0",
     "faster-whisper>=1.0",
     "sounddevice>=0.4.6",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,9 @@ Repository = "https://github.com/ericbenner/aircraftx"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aircraftx*"]
+
+[tool.setuptools.package-data]
+aircraftx = ["ui/assets/*.png"]
 
 [tool.black]
 line-length = 88

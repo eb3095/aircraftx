@@ -210,3 +210,20 @@ def _split_route(route: str) -> tuple[str, str]:
             parts = route.split(sep, 1)
             return parts[0].strip(), parts[1].strip()
     return route.strip(), ""
+
+
+def lookup_airport_coords(airport_code: str) -> Optional[tuple[float, float]]:
+    """ICAO/IATA airport code → (latitude, longitude)."""
+    code = airport_code.strip().upper()
+    if len(code) < 3:
+        return None
+    path = f"/airport/icao/{code}" if len(code) == 4 else f"/airport/iata/{code}"
+    data, outcome = _get_json(path)
+    if outcome != LookupOutcome.OK or not data:
+        return None
+    try:
+        lat = float(data["latitude"])
+        lon = float(data["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return lat, lon

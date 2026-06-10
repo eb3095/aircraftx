@@ -190,6 +190,7 @@ The live UI uses a fixed full-screen canvas (no redraw ghosts). By default aircr
 | `←` / `→` or `[` / `]` / `/` | Previous / next page (`?` = previous) |
 | `↑` / `↓` | Select aircraft (ADS-B view only); highlights row and updates **Aircraft details** |
 | `Esc` | Deselect — details panel shows the latest discovered aircraft; no row highlight |
+| `M` | Toggle **live map** window (ADS-B view only; off by default) |
 | `a` / `A` | Mode-S table / ADS-B table |
 | `g` | Oldest-first sort, jump to page 1 |
 | `G` or `End` | Newest-first sort, jump to page 1 (default) |
@@ -226,6 +227,30 @@ The status bar **lookup pending** count shows in-flight hexdb requests. Registra
 - Some ICAOs are not in the hexdb database — the panel shows *Not in lookup database*
 - hexdb rate-limits aggressive clients; AircraftX paces requests and retries transient failures automatically
 - Route lookup requires a callsign from ADS-B; aircraft without one still get registration/type
+
+### Live map
+
+Press **`M`** in the ADS-B dashboard to open a separate map window ([OpenStreetMap](https://www.openstreetmap.org/) tiles fetched directly). The map is **off by default** — it does not open at startup.
+
+The map follows the same focus rules as **Aircraft details**:
+
+- `↑`/`↓` selection updates the map to that aircraft
+- `Esc` / no selection tracks the **latest** ADS-B discovery
+- Closing the window (`M` again or the window close button) returns to terminal-only mode
+
+When position is available the map shows:
+
+- Aircraft marker with callsign or registration
+- Light blue **heading wedge** showing reported track direction (±18°, ~10 NM)
+- **+ / −** zoom buttons (top-left of map window)
+- Blue **track line** of recent ADS-B positions (where the aircraft **has been**, last 64 points)
+- Green **DEP** and orange **DEST** markers when route airports are known from hexdb
+- Gray **dashed line** between departure and destination airports (filed route endpoints — not a predicted flight path)
+- HUD strip: callsign, altitude, speed, heading, route, and a legend for the lines
+
+The map stays centered on the focused aircraft as it moves. Zoom resets to the default when you change aircraft (↑/↓ or a new latest discovery); use **+ / −** to zoom in or out manually.
+
+Requires `pillow` (installed with `pip install -r requirements.txt`). macOS includes Tk; the map runs on the main thread alongside the terminal UI. Network access is required for map tiles and airport coordinates. Map updates are paced to the terminal refresh rate so ADS-B capture stays responsive.
 
 ### VHF radio monitor
 
@@ -269,6 +294,7 @@ HackRF → IQ bytes → PPM demod → hex messages → pyModeS decode → aircra
 | `aircraftx/dsp/` | IQ conversion, preamble correlation, PPM bit extraction, phase correction |
 | `aircraftx/decode/` | CRC validation, ADS-B field decode, CPR pairing, aircraft state |
 | `aircraftx/lookup/` | Background hexdb.io enrichment (registration, type, route) |
+| `aircraftx/ui/map_window.py` | Live map window (tkinter + OpenStreetMap) |
 | `aircraftx/ui/` | ADS-B and radio dashboards, formatters, discovery sound |
 | `aircraftx/radio/channels.py` | Channel config parsing and merge |
 | `aircraftx/radio/local_lookup.py` | OurAirports nearest-airport frequency lookup |
@@ -309,7 +335,7 @@ adsb/
 │   ├── dsp/             # PPM + AM demod, IQ conversion, waveform scope
 │   ├── models/          # Aircraft state object
 │   ├── radio/           # HackRF, channels, squelch, STT, audio out
-│   └── ui/              # ADS-B + radio dashboards, keyboard, sounds
+│   └── ui/              # ADS-B + radio dashboards, map window, keyboard, sounds
 ├── screenshots/         # UI examples (see Screenshots section)
 ├── tests/               # pytest unit tests
 ├── start.sh             # Run from git without pip install

@@ -124,11 +124,13 @@ def test_ordered_aircraft_newest_first():
 def test_g_and_g_keys_switch_sort_and_reset_page():
     config = SnifferConfig.from_preset(adsb_only=False)
     display = ConsoleDisplay(config)
+    tracker = AircraftTracker()
+    now = 1000.0
     display.page_index = 2
-    display.handle_key("first", 100)
+    display.handle_key("first", tracker, now)
     assert display.newest_first is False
     assert display.page_index == 0
-    display.handle_key("last", 100)
+    display.handle_key("last", tracker, now)
     assert display.newest_first is True
     assert display.page_index == 0
 
@@ -214,9 +216,9 @@ def test_deselect_clears_highlight():
         ac.message_count = 1
         tracker.aircraft["4010EE"] = ac
         display.last_discovered_icao = "4010EE"
-        display.handle_key("channel_down", 1)
+        display.handle_key("channel_down", tracker, now)
         assert display._highlight_icao(display._ordered_aircraft(tracker, now)) == "4010EE"
-        display.handle_key("deselect", 1)
+        display.handle_key("deselect", tracker, now)
         assert display._highlight_icao(display._ordered_aircraft(tracker, now)) is None
         assert display._focus_icao(display._ordered_aircraft(tracker, now)) == "4010EE"
     finally:
@@ -240,13 +242,44 @@ def test_first_arrow_down_selects_top_row():
     tracker.aircraft["NEW001"] = new
     display.newest_first = True
     display.last_discovered_icao = "NEW001"
-    display.handle_key("channel_down", 2)
+    display.handle_key("channel_down", tracker, now)
     ordered = display._ordered_aircraft(tracker, now + 20)
+    assert display.selected_icao == "NEW001"
     assert display.selected_index == 0
     assert ordered[0].icao == "NEW001"
-    display.handle_key("channel_down", 2)
+    display.handle_key("channel_down", tracker, now + 20)
+    assert display.selected_icao == "OLD001"
     assert display.selected_index == 1
     assert ordered[1].icao == "OLD001"
+
+
+def test_selection_follows_icao_when_new_aircraft_arrives():
+    config = SnifferConfig.from_preset(adsb_only=True)
+    display = ConsoleDisplay(config)
+    tracker = AircraftTracker()
+    now = 1000.0
+    old = Aircraft(icao="OLD001", first_seen=now)
+    old.last_df = 17
+    old.df17_count = 1
+    old.message_count = 1
+    tracker.aircraft["OLD001"] = old
+    display.newest_first = True
+    display.handle_key("channel_down", tracker, now)
+    assert display.selected_icao == "OLD001"
+    assert display.selected_index == 0
+
+    newer = Aircraft(icao="NEW001", first_seen=now + 10)
+    newer.last_df = 17
+    newer.df17_count = 1
+    newer.message_count = 1
+    tracker.aircraft["NEW001"] = newer
+
+    display.render(tracker, now + 20, config.radio)
+    ordered = display._ordered_aircraft(tracker, now + 20)
+    assert ordered[0].icao == "NEW001"
+    assert display.selected_icao == "OLD001"
+    assert display.selected_index == 1
+    assert display._highlight_icao(ordered) == "OLD001"
 
 
 def test_deselect_shows_latest_not_selected():
@@ -264,9 +297,11 @@ def test_deselect_shows_latest_not_selected():
             tracker.aircraft[icao] = ac
         display.newest_first = True
         display.last_discovered_icao = "NEW001"
-        display.handle_key("channel_down", 2)
+        display.handle_key("channel_down", tracker, now)
+        assert display.selected_icao == "NEW001"
         assert display.selected_index == 0
-        display.handle_key("deselect", 2)
+        display.handle_key("deselect", tracker, now)
+        assert display.selected_icao is None
         assert display.selected_index is None
         assert display._focus_icao(display._ordered_aircraft(tracker, now)) == "NEW001"
     finally:
@@ -284,8 +319,28 @@ def test_adsb_lookup_after_mode_s_seen():
         adsb.last_df = 17
         display.push_message(mode_s, 100.0)
         display.push_message(adsb, 101.0)
+        assert display.last_discovered_icao == "4840D6"
         assert "4840D6" in display._adsb_lookup_icaos
         assert lookup.pending_count() >= 1
+    finally:
+        lookup.shutdown()
+
+
+def test_deselect_tracks_new_ping_after_mode_s():
+    config = SnifferConfig.from_preset(adsb_only=True, sound_enabled=False)
+    lookup = AircraftLookupService()
+    try:
+        display = ConsoleDisplay(config, lookup=lookup)
+        display.last_discovered_icao = "OLD001"
+        mode_s = Aircraft(icao="NEW001")
+        mode_s.last_df = 11
+        adsb = Aircraft(icao="NEW001")
+        adsb.last_df = 17
+        display.push_message(mode_s, 100.0)
+        display.push_message(adsb, 101.0)
+        assert display.selected_icao is None
+        assert display.selected_index is None
+        assert display.last_discovered_icao == "NEW001"
     finally:
         lookup.shutdown()
 

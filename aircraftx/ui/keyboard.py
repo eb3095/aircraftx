@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import select
 import sys
@@ -31,6 +32,32 @@ def restore_terminal() -> None:
 
 
 atexit.register(restore_terminal)
+
+
+@contextlib.contextmanager
+def suppress_stdio() -> Iterator[None]:
+    """Silence stdout/stderr (e.g. Tk teardown noise on macOS)."""
+    with open(os.devnull, "w", encoding="utf-8") as devnull:
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_out
+            sys.stderr = old_err
+
+
+def repair_live_screen(console: Optional[object] = None) -> None:
+    """Re-enter Rich alternate screen after Tk corrupts the terminal."""
+    if sys.stdout.isatty():
+        sys.stdout.write("\x1b[?1049h\x1b[?25l")
+        sys.stdout.flush()
+    if console is not None:
+        try:
+            console.clear()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @contextmanager
@@ -177,6 +204,8 @@ def _decode_key(raw: str) -> Optional[str]:
         return "volume_up"
     if raw == "-":
         return "volume_down"
+    if raw in ("m", "M"):
+        return "toggle_map"
     if not raw.startswith("\x1b"):
         return None
 
